@@ -221,6 +221,8 @@ boot_df %>%
   )
 ```
 
+Comment: The distribution of `R.Squared` represents a little left-skewed (but almost normal) bell-shape curve, and the mean is around `r round(mean(pull(boot_df, r_squared)), digits = 3)` (r squared is between 0 and 1, and larger the value, better the fit). We can conclude that most of the r squared are quite close to 1, thus the linear model of `tmin` and `tmax` fits really well.
+
 **Plot log(beta_0 * beta_1)**
 
 ```{r}
@@ -234,3 +236,26 @@ boot_df %>%
   )
 ```
 
+Comment: The distribution of `log(beta_0 * beta_1)` is almost normal distribution (a well bell-shape curve), and the mean value is around `r round(mean(pull(boot_df, log_beta)), digits = 3)`.
+
+**95% Confidence Interval**
+
+```{r}
+## R.Squared
+ci_r = 
+  boot_df %>% 
+  pull(r_squared) %>% 
+  quantile(c(0.025, 0.975))
+
+ci_r
+
+## log(beta_0 * beta_1)
+ci_log = 
+  boot_df %>% 
+  pull(log_beta) %>% 
+  quantile(c(0.025, 0.975))
+
+ci_log 
+```
+
+Thus, the 95% CI of `R.Squared` is (`r round(quantile(pull(boot_df, r_squared), probs = c(0.025,0.975)), digits = 3)`), the 95% CI of `log(beta_0 * beta_1)` is (`r round(quantile(pull(boot_df, log_beta), probs = c(0.025,0.975)), digits = 3)`). At the significance level of 0.05, we are 95% confident that the true R.Squared will lies between 0.895 and 0.928, and the true log(beta_0 * beta_1) will lies between 1.965 and 2.059.
