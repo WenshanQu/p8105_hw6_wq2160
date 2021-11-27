@@ -7,6 +7,7 @@ output: github_document
 
 ```{r include = FALSE}
 library(tidyverse)
+library(modelr)
 
 knitr::opts_chunk$set(
   fig.width = 6,
@@ -23,5 +24,213 @@ options(
 
 scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
+```
+
+## Problem 1
+
+**Read and Tidy Data**
+
+```{r message = FALSE}
+birthweight_df = 
+  read_csv("./data/birthweight.csv") %>% 
+  janitor::clean_names() %>% 
+  mutate(
+    babysex = factor(babysex, levels = c("1", "2")),
+    frace = factor(frace, levels = c("1", "2", "3", "4", "8", "9")),
+    malform = factor(malform, levels = c("0", "1")),
+    mrace = factor(mrace, levels = c("1", "2", "3", "4", "8")),
+    parity = as.integer(parity)
+  )
+
+birthweight_df
+```
+
+**Cheking `NA`**
+
+```{r}
+map_df(birthweight_df, ~sum(is.na(.))) %>% 
+  knitr::kable(align = "c")
+```
+
+We can see that there is no `NA` value in this data.
+
+**Fit Linear Model**
+
+My interested predictors includes: 
+
+  1) mother’s pre-pregnancy BMI (`ppbmi`);
+  
+  2) average number of cigarettes smoked per day during pregnancy (`smoken`);
+  
+  3) mother’s age at delivery (years) (`momage`);
+  
+  4) gestational age in weeks (`gaweeks`).
+  
+Then we fit the linear model based on above parameters.
+
+```{r}
+bw_fit = lm(bwt ~ ppbmi + smoken + momage + gaweeks, data = birthweight_df)
+
+bw_fit %>% 
+  broom::tidy() %>% 
+  select(term, estimate, p.value) %>% 
+  knitr::kable()
+```
+
+Describe modeling process: I use linear regression model to build a relationship between a dependent variable (`bwt`) and a set of independent variables (`ppbmi`, `smoken`, `momage`, `gaweeks`).
+
+**Model Residuals against Fitted Values**
+
+```{r}
+resid_pred_df = 
+  birthweight_df %>% 
+  add_residuals(bw_fit) %>% 
+  add_predictions(bw_fit) %>% 
+  select(pred, resid)
+
+resid_pred_df %>% 
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point(alpha = .5) +
+  labs(
+    title = "Model Residuals against Fitted Values",
+    x = "Fitted Value",
+    y = "Residual"
+  )
+```
+
+We can see that these residuals are almost symmetric around 0, and most of them are around 0, while some of them (outliers) are around -1000 and 1000.
+
+**Compare Models**
+
+The first compared model: _length at birth and gestational age as predictors (main effects only)_
+
+```{r}
+fit1 = lm(bwt ~ blength + gaweeks, data = birthweight_df)
+
+fit1 %>% 
+  broom::tidy() %>% 
+  knitr::kable()
+```
+
+The second compared model: _head circumference, length, sex, and all interactions (including the three-way interaction) between these_
+
+```{r}
+fit2 = lm(bwt ~ bhead * blength * babysex, data = birthweight_df)
+
+fit2 %>% 
+  broom::tidy() %>% 
+  knitr::kable()
+```
+
+**Make this comparison in terms of the cross-validated prediction error**
+
+```{r}
+cv_df = 
+  crossv_mc(birthweight_df, 100) %>% 
+  mutate(
+      train = map(train, as_tibble),
+      test = map(test, as_tibble)
+  ) %>% 
+  mutate(
+      a_mod = map(.x = train, ~lm(bwt ~ ppbmi + smoken + momage + gaweeks, data = .x)),
+      b_mod = map(.x = train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+      c_mod = map(.x = train, ~lm(bwt ~ bhead * blength * babysex, data = .x))
+  ) %>% 
+  mutate(
+      rmse_a = map2_dbl(.x = a_mod, .y = test, ~rmse(model = .x, data = .y)),
+      rmse_b = map2_dbl(.x = b_mod, .y = test, ~rmse(model = .x, data = .y)),
+      rmse_c = map2_dbl(.x = c_mod, .y = test, ~rmse(model = .x, data = .y))
+  )
+
+cv_df %>% 
+  select(.id, starts_with("rmse")) %>% 
+  pivot_longer(
+    rmse_a:rmse_c,
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  ggplot(aes(x = model, y = rmse)) +
+  geom_violin() +
+  labs(
+    title = "Comparasion between Three Different Models",
+    subtitle = "a = my model, b = fit1 model, c = fit2 model",
+    x = "Model", 
+    y = "RMSE"
+  )
+```
+
+Comment: We can see that the Model C (which is the second given model defined as `bwt ~ bhead * blength * babysex`) has the lowest RMSE and has the best fit, while Model A (which is my model, defined as `bwt ~ ppbmi + smoken + momage + gaweeks`) has the worst fit. It is quite reasonable for the Model C contains not only the main effects, but also the interactions.
+
+## Problem 2
+
+**Load the Data**
+
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+**5000 Bootstrap**
+
+```{r warning = FALSE, message = FALSE}
+boot_df = 
+  weather_df %>% 
+  bootstrap(n = 5000, id = "strap_number") %>% 
+  mutate(
+    model = map(.x = strap, ~lm(tmax ~ tmin, data = .x)),
+    results_tidy = map(model, broom::tidy),
+    results_glance = map(model, broom::glance)
+  ) %>% 
+  select(strap_number, results_tidy, results_glance) %>% 
+  unnest(results_tidy, results_glance) %>% 
+  janitor::clean_names() %>% 
+  select(strap_number, term, estimate, r_squared) %>% 
+  pivot_wider(
+    names_from = term, 
+    values_from = estimate
+  ) %>% 
+  rename("beta_0" = "(Intercept)", "beta_1" = "tmin") %>% 
+  mutate(
+    log_beta = log(beta_0 * beta_1)
+  ) %>% 
+  select(strap_number, r_squared, log_beta)
+
+boot_df
+```
+
+**Plot Estimated R Squared** 
+
+```{r}
+boot_df %>% 
+  ggplot(aes(x = r_squared)) +
+  geom_density() + 
+  labs(
+    title = "R.Squared Distribution Plot",
+    x = "Estimated R.Squared",
+    y = "Density"
+  )
+```
+
+**Plot log(beta_0 * beta_1)**
+
+```{r}
+boot_df %>% 
+  ggplot(aes(x = log_beta)) +
+  geom_density() + 
+  labs(
+    title = "Log(beta_0 * beta_1) Distribution Plot",
+    x = "log(beta_0 * beta_1)",
+    y = "Density"
+  )
 ```
 
