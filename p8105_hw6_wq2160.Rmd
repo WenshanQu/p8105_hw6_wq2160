@@ -66,7 +66,7 @@ My interested predictors includes:
   
   4) gestational age in weeks (`gaweeks`).
   
-Then we fit the linear model based on above parameters.
+Then we fit the linear model based on above parameters. This is a hypothesis based multiple linear regression model, and I choose those 4 predictors (which could be seen as my hypothesis on the contributors on birth weight) based on my epidemiological and biological knowledge, such as the gestational status of mother (BMI, smoken, age) will definitely influence the growth wellness of baby based on the influences of chemical and biological signals, and premature infant tends to have a lower weight than normal infant.
 
 ```{r}
 bw_fit = lm(bwt ~ ppbmi + smoken + momage + gaweeks, data = birthweight_df)
@@ -166,7 +166,7 @@ Comment: We can see that the Model C (which is the second given model defined as
 
 **Load the Data**
 
-```{r}
+```{r message = FALSE}
 weather_df = 
   rnoaa::meteo_pull_monitors(
     c("USW00094728"),
